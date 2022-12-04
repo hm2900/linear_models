@@ -52,8 +52,8 @@ lm(y ~ x, data = sim_df_const) %>% broom::tidy()
     ## # A tibble: 2 × 5
     ##   term        estimate std.error statistic   p.value
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
-    ## 1 (Intercept)     1.90    0.0898      21.2 1.44e- 57
-    ## 2 x               3.03    0.0614      49.4 2.25e-130
+    ## 1 (Intercept)     1.99    0.0828      24.0 9.37e- 67
+    ## 2 x               2.97    0.0598      49.7 6.22e-131
 
 ``` r
 lm(y ~ x, data = sim_df_nonconst) %>% broom::tidy()
@@ -62,8 +62,8 @@ lm(y ~ x, data = sim_df_nonconst) %>% broom::tidy()
     ## # A tibble: 2 × 5
     ##   term        estimate std.error statistic   p.value
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
-    ## 1 (Intercept)     2.08    0.0999      20.9 1.67e- 56
-    ## 2 x               2.90    0.0682      42.5 9.02e-116
+    ## 1 (Intercept)     1.92    0.0857      22.5 1.06e- 61
+    ## 2 x               3.03    0.0619      48.9 2.75e-129
 
 ## Draw one bootstap sample
 
@@ -99,5 +99,99 @@ boot_sample(sim_df_nonconst) %>%
     ## # A tibble: 2 × 5
     ##   term        estimate std.error statistic   p.value
     ##   <chr>          <dbl>     <dbl>     <dbl>     <dbl>
-    ## 1 (Intercept)     2.16    0.0935      23.1 9.27e- 64
-    ## 2 x               2.82    0.0676      41.7 5.40e-114
+    ## 1 (Intercept)     1.94    0.0767      25.3 1.22e- 70
+    ## 2 x               2.96    0.0571      51.8 4.28e-135
+
+## Many samples and analysis
+
+``` r
+boot_straps = 
+  tibble(
+    strap_number = 1:1000,
+    strap_sample = rerun(1000, boot_sample(sim_df_nonconst))
+  )
+```
+
+Can I run my analysis on these …?
+
+``` r
+boot_results = 
+  boot_straps %>%
+  mutate(
+    models = map(.x = strap_sample, ~lm(y ~ x, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>%
+  select(strap_number, results) %>%
+  unnest(results)
+```
+
+What do I have now?
+
+``` r
+boot_results %>%
+  group_by(term) %>%
+  summarize(
+    mean_est = mean(estimate),
+    sd_est = sd(estimate)
+  )
+```
+
+    ## # A tibble: 2 × 3
+    ##   term        mean_est sd_est
+    ##   <chr>          <dbl>  <dbl>
+    ## 1 (Intercept)     1.93 0.0581
+    ## 2 x               3.02 0.0784
+
+Look at the distributions
+
+``` r
+boot_results %>%
+  filter(term == "x") %>%
+  ggplot(aes(x = estimate)) +
+  geom_density()
+```
+
+<img src="Bootstrapping_files/figure-gfm/unnamed-chunk-10-1.png" width="90%" />
+
+Construct bootstrap CI
+
+``` r
+boot_results %>%
+  group_by(term) %>%
+  summarize(
+    ci_lower = quantile(estimate, 0.025),
+    ci_upper = quantile(estimate, 0.975)
+  )
+```
+
+    ## # A tibble: 2 × 3
+    ##   term        ci_lower ci_upper
+    ##   <chr>          <dbl>    <dbl>
+    ## 1 (Intercept)     1.82     2.05
+    ## 2 x               2.87     3.17
+
+## Bootstrap using modelr
+
+Can we simplify anything …?
+
+``` r
+sim_df_nonconst %>%
+  bootstrap(1000, id = "stap_number") %>%
+  mutate(
+    models = map(.x = strap, ~lm(y ~ x, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>%
+  select(stap_number, results) %>%
+  unnest(results) %>%
+  group_by(term) %>%
+  summarize(
+    mean_est = mean(estimate),
+    sd_est = sd(estimate)
+  )
+```
+
+    ## # A tibble: 2 × 3
+    ##   term        mean_est sd_est
+    ##   <chr>          <dbl>  <dbl>
+    ## 1 (Intercept)     1.92 0.0587
+    ## 2 x               3.03 0.0778
