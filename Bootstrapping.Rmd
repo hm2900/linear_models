@@ -6,6 +6,7 @@ output: github_document
 ```{r setup, include = FALSE, message = FALSE, warning=FALSE}
 library(tidyverse)
 library(modelr)
+library(p8105.datasets)
 
 knitr::opts_chunk$set(
   echo = TRUE,
@@ -171,4 +172,84 @@ sim_df_nonconst %>%
   )
 ```
 
+## Revisit nyc airbnb
+
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>%
+  mutate(stars = review_scores_location / 2) %>%
+  rename(
+    borough = neighbourhood_group
+  ) %>%
+  filter(borough != "Staten Island") %>%
+  select(price, stars, borough, neighbourhood, room_type)
+```
+
+```{r}
+nyc_airbnb %>%
+  ggplot(aes(x = stars, y = price)) +
+  geom_point()
+```
+
+```{r}
+nyc_airbnb %>%
+  filter(borough == "Manhattan") %>%
+  drop_na(stars) %>%
+  ggplot(aes(x = stars, y = price)) +
+  geom_point()
+```
+We got clearly non-constant variance in the relationship between stars and price and a few outliers, so we would like to do to get the standard error for the linear model here bootstrap - take a sample with replacement, fit a regression of price against stars and save the estimated intercept and slope each time.
+
+```{r}
+airbnb_boot_results = 
+  nyc_airbnb %>%
+  filter(borough == "Manhattan") %>%
+  drop_na(stars) %>%
+  bootstrap(1000, id = "stap_number") %>%
+  mutate(
+    models = map(.x = strap, ~lm(price ~ stars, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>%
+  select(stap_number, results) %>%
+  unnest(results)
+  
+airbnb_boot_results %>%
+  group_by(term) %>%
+  summarize(
+    mean_est = mean(estimate),
+    sd_est = sd(estimate)
+  )
+```
+
+Compare this to `lm`
+
+```{r}
+nyc_airbnb %>%
+  filter(borough == "Manhattan") %>%
+  drop_na(stars) %>%
+  lm(price ~ stars, data = .) %>%
+  broom::tidy()
+```
+
+Look at the distributions
+
+```{r}
+airbnb_boot_results %>%
+  filter(term == "stars") %>%
+  ggplot(aes(x = estimate)) +
+  geom_density()
+```
+
+Construct bootstrap CI
+
+```{r}
+airbnb_boot_results %>%
+  group_by(term) %>%
+  summarize(
+    ci_lower = quantile(estimate, 0.025),
+    ci_upper = quantile(estimate, 0.975)
+  )
+```
 
